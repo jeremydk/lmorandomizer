@@ -1,3 +1,5 @@
+# Forked only for easier crossbuilding access until regular releases are flowing
+
 # La-Mulana (Original version) Randomizer
 
 [![Build Status](https://travis-ci.org/progre/lmorandomizer.svg?branch=master)](https://travis-ci.org/progre/lmorandomizer) ![License](https://img.shields.io/github/license/progre/lmorandomizer.svg) [![Version](https://img.shields.io/github/release/progre/lmorandomizer/all.svg)](https://github.com/progre/lmorandomizer/releases)
