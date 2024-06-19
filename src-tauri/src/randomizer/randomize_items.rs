@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use anyhow::Result;
-use log::info;
+use log::{info, trace};
 use rand::Rng;
 use rand_seeder::Seeder;
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -19,22 +19,35 @@ use crate::{
 };
 
 pub fn randomize_items(script: &mut Script, source: &Storage, seed: &str) -> Result<()> {
-    debug_assert!(validate(source));
+    let start = std::time::Instant::now();
+    // debug_assert!(validate(source));
     assert_unique(source);
+    trace!("Assertion in {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
     let mut rng: Xoshiro256PlusPlus = Seeder::from(seed).make_rng();
     let shuffled = randomize_storage(source, &mut rng);
+    trace!("Randomized items in {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
     assert_unique(&shuffled);
     script.replace_items(&shuffled)?;
-    script.replace_shops(shuffled.shops())?;
+    trace!("Replaced items in {:?}", start.elapsed());
     Ok(())
 }
 
 fn randomize_storage(source: &Storage, rng: &mut impl Rng) -> Storage {
+    let all_requirement_names = source.all_requirement_names();
     let mut shuffled = None;
     for i in 0..10000 {
         // itemをshuffleしてplaceと合わせる
+        let start = std::time::Instant::now();
         let storage = shuffle(source, rng);
-        if validate(&storage) {
+        trace!("Shuffled in {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let result = validate(&storage, &all_requirement_names);
+        trace!("Validated in {:?}", start.elapsed());
+        if result {
             shuffled = Some(storage);
             info!("Shuffle was tryed: {i} times");
             break;
@@ -106,14 +119,16 @@ fn shuffle(source: &Storage, rng: &mut impl Rng) -> Storage {
     let shops: Vec<_> = new_shop_items
         .into_iter()
         .enumerate()
-        .map(|(i, items)| Shop {
-            items,
-            spot: source.shops()[i].spot.clone(),
+        .map(|(i, items)| {
+            let old = &source.shops()[i];
+            Shop {
+                items,
+                talk_number: old.talk_number,
+                spot: old.spot.clone(),
+            }
         })
         .collect();
-    debug_assert!(shops.iter().all(|x| x.spot.talk_number.is_some()));
     Storage::new(
-        source.all_requirement_names().clone(),
         main_weapon_shutters,
         sub_weapon_shutters,
         chests,
@@ -183,54 +198,54 @@ fn distribute_items(
 }
 
 fn assert_unique(storage: &Storage) {
-    let mut name_map: HashMap<String, ItemSpot> = HashMap::new();
-    let mut flag_map: HashMap<String, ItemSpot> = HashMap::new();
+    let mut names = HashSet::new();
+    let mut flags = HashSet::new();
 
     storage
         .main_weapon_shutters()
         .iter()
-        .chain(storage.sub_weapon_shutters().iter())
-        .chain(storage.chests().iter())
-        .chain(storage.seal_chests().iter())
+        .map(|x| ("weaponShutter", x))
         .chain(
             storage
-                .shops()
+                .sub_weapon_shutters()
                 .iter()
-                .flat_map(|x| {
-                    [x.items.0.clone(), x.items.1.clone(), x.items.2.clone()]
-                        .into_iter()
-                        .map(|item| ItemSpot {
-                            item,
-                            spot: x.spot.clone(),
-                        })
-                })
-                .collect::<Vec<_>>()
-                .iter(),
+                .map(|x| ("weaponShutter", x)),
         )
-        .for_each(|x| {
-            if x.item.name != "weights"
-                && x.item.name != "shurikenAmmo"
-                && x.item.name != "toukenAmmo"
-                && x.item.name != "spearAmmo"
-                && x.item.name != "flareGunAmmo"
-                && x.item.name != "bombAmmo"
-                && x.item.name != "ammunition"
-                && x.item.name != "shellHorn"
-                && x.item.name != "finder"
+        .chain(storage.chests().iter().map(|x| ("chest", x)))
+        .chain(storage.seal_chests().iter().map(|x| ("sealChest", x)))
+        .map(|(item_type, item_spot)| (item_type, item_spot.item.clone()))
+        .chain(storage.shops().iter().flat_map(|x| {
+            [&x.items.0, &x.items.1, &x.items.2]
+                .into_iter()
+                .cloned()
+                .map(|item| ("shop", item))
+        }))
+        .for_each(|(item_type, item)| {
+            if ![
+                "weights",
+                "shurikenAmmo",
+                "toukenAmmo",
+                "spearAmmo",
+                "flareGunAmmo",
+                "bombAmmo",
+                "ammunition",
+                "shellHorn",
+                "finder",
+            ]
+            .contains(&item.name.as_ref())
             {
-                let key = format!("{}:{}", x.spot.r#type, x.item.name);
-                if name_map.contains_key(&key) {
+                let key = format!("{}:{}", item_type, item.name);
+                if names.contains(&key) {
                     panic!("Duplicate item: {}", key);
                 }
-                name_map.insert(key, x.clone());
+                names.insert(key);
             }
 
-            if x.item.flag != 65279 && x.item.flag != 753 && x.item.flag != 754 {
-                let key = x.item.flag.to_string();
-                if flag_map.contains_key(&key) {
-                    panic!("Duplicate flag: {}", key);
+            if ![65279, 753, 754].contains(&item.flag) {
+                if flags.contains(&item.flag) {
+                    panic!("Duplicate flag: {}", item.flag);
                 }
-                flag_map.insert(key, x.clone());
+                flags.insert(item.flag);
             }
         });
 }

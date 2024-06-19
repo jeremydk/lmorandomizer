@@ -1,7 +1,6 @@
-use crate::script::items::{Equipment, SubWeapon};
-
 use super::{
-    object::{LMStart, Object},
+    items::{Equipment, SubWeapon},
+    object::{Start, Object},
     script::{Field, Map, World},
 };
 
@@ -14,7 +13,7 @@ fn create_object(
     op2: i32,
     op3: i32,
     op4: i32,
-    starts: Vec<LMStart>,
+    starts: Vec<Start>,
 ) -> Object {
     Object {
         number,
@@ -51,9 +50,9 @@ pub fn add_starting_items(
                 0,
                 unused_save_flag_no,
                 -1,
-                vec![LMStart {
+                vec![Start {
                     number: unused_save_flag_no,
-                    value: false,
+                    run_when_unset: false,
                 }],
             ),
             create_object(
@@ -64,9 +63,9 @@ pub fn add_starting_items(
                 255,
                 unused_save_flag_no,
                 -1,
-                vec![LMStart {
+                vec![Start {
                     number: unused_save_flag_no,
-                    value: false,
+                    run_when_unset: false,
                 }],
             ),
         ]
