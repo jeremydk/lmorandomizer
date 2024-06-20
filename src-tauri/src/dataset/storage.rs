@@ -1,22 +1,20 @@
-use std::{collections::HashSet, thread::spawn};
+use std::thread::spawn;
 
 use super::{item::Item, spot::Spot};
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
 pub struct ItemSpot {
     pub spot: Spot,
     pub item: Item,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug)]
 pub struct Shop {
     pub spot: Spot,
-    pub talk_number: u16,
     pub items: (Item, Item, Item),
 }
 
-#[derive(Clone, getset::Getters, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, getset::Getters)]
 pub struct Storage {
     #[get = "pub"]
     main_weapon_shutters: Vec<ItemSpot>,
@@ -65,18 +63,6 @@ impl Storage {
         all_items
     }
 
-    pub fn all_requirement_names(&self) -> Vec<String> {
-        let mut set = HashSet::new();
-        add_item_spot_requirement_item_names_to(&mut set, &self.main_weapon_shutters);
-        add_item_spot_requirement_item_names_to(&mut set, &self.sub_weapon_shutters);
-        add_item_spot_requirement_item_names_to(&mut set, &self.chests);
-        add_item_spot_requirement_item_names_to(&mut set, &self.seal_chests);
-        add_shop_requirement_item_names_to(&mut set, &self.shops);
-        let mut vec: Vec<_> = set.into_iter().collect();
-        vec.sort();
-        vec
-    }
-
     pub fn split_reachables_unreachables(
         self,
         current_item_names: &[String],
@@ -103,7 +89,7 @@ impl Storage {
                         .is_reachable(&current_item_names, sacred_orb_count)
                     {
                         reached_item_names_tx
-                            .send(item_spot.item.name.clone())
+                            .send(item_spot.item.name().to_owned())
                             .unwrap();
                     } else {
                         unreached_main_weapon_shutters.push(item_spot);
@@ -123,7 +109,7 @@ impl Storage {
                         .is_reachable(&current_item_names, sacred_orb_count)
                     {
                         reached_item_names_tx
-                            .send(item_spot.item.name.clone())
+                            .send(item_spot.item.name().to_owned())
                             .unwrap();
                     } else {
                         unreached_sub_weapon_shutters.push(item_spot);
@@ -143,7 +129,7 @@ impl Storage {
                         .is_reachable(&current_item_names, sacred_orb_count)
                     {
                         reached_item_names_tx
-                            .send(item_spot.item.name.clone())
+                            .send(item_spot.item.name().to_owned())
                             .unwrap();
                     } else {
                         unreached_chests.push(item_spot);
@@ -163,7 +149,7 @@ impl Storage {
                         .is_reachable(&current_item_names, sacred_orb_count)
                     {
                         reached_item_names_tx
-                            .send(item_spot.item.name.clone())
+                            .send(item_spot.item.name().to_owned())
                             .unwrap();
                     } else {
                         unreached_seal_chests.push(item_spot);
@@ -183,13 +169,13 @@ impl Storage {
                         .is_reachable(&current_item_names, sacred_orb_count)
                     {
                         reached_item_names_tx
-                            .send(shop.items.0.name.clone())
+                            .send(shop.items.0.name().to_owned())
                             .unwrap();
                         reached_item_names_tx
-                            .send(shop.items.1.name.clone())
+                            .send(shop.items.1.name().to_owned())
                             .unwrap();
                         reached_item_names_tx
-                            .send(shop.items.2.name.clone())
+                            .send(shop.items.2.name().to_owned())
                             .unwrap();
                     } else {
                         unreached_shops.push(shop);
@@ -217,25 +203,5 @@ impl Storage {
                 unreached_shops,
             ),
         )
-    }
-}
-
-fn add_item_spot_requirement_item_names_to(set: &mut HashSet<String>, items: &[ItemSpot]) {
-    for item in items {
-        for group in item.spot.requirement_items().unwrap_or(&Vec::new()) {
-            for i in group {
-                set.insert(i.name.clone());
-            }
-        }
-    }
-}
-
-fn add_shop_requirement_item_names_to(set: &mut HashSet<String>, items: &[Shop]) {
-    for item in items {
-        for group in item.spot.requirement_items().unwrap_or(&Vec::new()) {
-            for i in group {
-                set.insert(i.name.clone());
-            }
-        }
     }
 }
