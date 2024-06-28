@@ -10,11 +10,11 @@ use crate::{
 use super::{
     add_starting_items::add_starting_items,
     items,
-    object::{ChestItem, MainWeapon, Object, Seal, Shop, SubWeapon},
+    object::{ChestContent, ChestItem, MainWeapon, Object, Seal, Shop, SubWeapon},
     scripteditor::{replace_items, replace_shops},
 };
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
 pub struct Map {
     pub attrs: (u8, u8, u8),
     pub up: (i8, i8, i8, i8),
@@ -24,7 +24,7 @@ pub struct Map {
     pub objects: Vec<Object>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
 pub struct Field {
     pub attrs: (u8, u8, u8, u8, u8),
     pub chip_line: (u16, u16),
@@ -34,13 +34,13 @@ pub struct Field {
     pub maps: Vec<Map>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
 pub struct World {
     pub number: u8,
     pub fields: Vec<Field>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
 pub struct Script {
     pub talks: Vec<String>,
     pub worlds: Vec<World>,
@@ -89,14 +89,10 @@ impl Script {
             .filter_map(|x| x.to_chest_item().transpose())
             .collect::<Result<Vec<_>>>()?
             .into_iter()
-            .filter(
-                |ChestItem {
-                     chest_item_number, ..
-                 }| {
-                    *chest_item_number != -1
-                        && *chest_item_number != items::Equipment::SweetClothing as i16
-                },
-            )
+            .filter(|ChestItem { content, .. }| {
+                content.is_some()
+                    && content != &Some(ChestContent::Equipment(items::Equipment::SweetClothing))
+            })
             .collect())
     }
 
@@ -114,10 +110,10 @@ impl Script {
             .collect()
     }
 
-    pub fn replace_items(&mut self, shuffled: &Storage) -> Result<()> {
+    pub fn replace_items(&mut self, script: &Script, shuffled: &Storage) -> Result<()> {
         let shops = self.shops()?;
-        replace_items(&mut self.worlds, shuffled)?;
-        replace_shops(&mut self.talks, &shops, shuffled.shops())?;
+        replace_items(&mut self.worlds, script, shuffled)?;
+        replace_shops(&mut self.talks, script, &shops, shuffled.shops())?;
         Ok(())
     }
 

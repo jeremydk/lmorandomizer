@@ -1,27 +1,39 @@
-use anyhow::{bail, Result};
+use std::num::NonZero;
 
-use super::shop_items_data::{self, ShopItem};
+use anyhow::{anyhow, bail, Result};
+use num_traits::FromPrimitive;
+
+use super::{
+    items,
+    shop_items_data::{self, ShopItem},
+};
 
 pub struct MainWeapon {
-    pub main_weapon_number: u8,
+    pub content: items::MainWeapon,
     pub flag: u16,
 }
 
 pub struct SubWeapon {
-    pub sub_weapon_number: u8,
+    pub content: items::SubWeapon,
     pub count: u16,
     pub flag: u16,
 }
 
+#[derive(PartialEq)]
+pub enum ChestContent {
+    Equipment(items::Equipment),
+    Rom(items::Rom),
+}
+
 pub struct ChestItem {
-    pub chest_item_number: i16,
+    pub content: Option<ChestContent>,
     pub open_flag: i32,
     /// < 0 means not set
     pub flag: i32,
 }
 
 pub struct Seal {
-    pub seal_number: u8,
+    pub content: items::Seal,
     pub flag: u16,
 }
 
@@ -33,7 +45,7 @@ pub struct Shop {
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Start {
     /// max 99999
-    pub number: u32,
+    pub flag: u32,
     pub run_when_unset: bool,
 }
 
@@ -50,12 +62,96 @@ pub struct Object {
 }
 
 impl Object {
+    pub fn chest(pos: &Object, op1: i32, number: i16, set_flag: u16, starts: Vec<Start>) -> Self {
+        Object {
+            number: 1,
+            x: pos.x,
+            y: pos.y,
+            op1,
+            op2: number as i32,
+            op3: set_flag as i32,
+            op4: -1,
+            starts,
+        }
+    }
+
+    pub fn main_weapon(
+        pos: &Object,
+        content: items::MainWeapon,
+        set_flag: u16,
+        starts: Vec<Start>,
+    ) -> Self {
+        Object {
+            number: 77,
+            x: pos.x,
+            y: pos.y,
+            op1: content as i32,
+            op2: set_flag as i32,
+            op3: -1,
+            op4: -1,
+            starts,
+        }
+    }
+
+    pub fn sub_weapon_body(
+        pos: &Object,
+        content: items::SubWeapon,
+        set_flag: u16,
+        starts: Vec<Start>,
+    ) -> Self {
+        debug_assert!(content != items::SubWeapon::AnkhJewel);
+        Object {
+            number: 13,
+            x: pos.x,
+            y: pos.y,
+            op1: content as i32,
+            op2: 0,
+            op3: set_flag as i32,
+            op4: -1,
+            starts,
+        }
+    }
+
+    pub fn sub_weapon_ammo(
+        pos: &Object,
+        content: items::SubWeapon,
+        count: NonZero<u8>,
+        set_flag: u16,
+        starts: Vec<Start>,
+    ) -> Self {
+        debug_assert!(content != items::SubWeapon::AnkhJewel || count.get() == 1);
+        Object {
+            number: 13,
+            x: pos.x,
+            y: pos.y,
+            op1: content as i32,
+            op2: count.get() as i32,
+            op3: set_flag as i32,
+            op4: -1,
+            starts,
+        }
+    }
+
+    pub fn seal(pos: &Object, content: items::Seal, set_flag: u16, starts: Vec<Start>) -> Self {
+        Object {
+            number: 71,
+            x: pos.x,
+            y: pos.y,
+            op1: content as i32,
+            op2: set_flag as i32,
+            op3: -1,
+            op4: -1,
+            starts,
+        }
+    }
+
     pub fn to_main_weapon(&self) -> Result<Option<MainWeapon>> {
         if self.number != 77 {
             return Ok(None);
         }
         Ok(Some(MainWeapon {
-            main_weapon_number: u8::try_from(self.op1)?,
+            content: items::MainWeapon::from_i32(self.op1)
+                .ok_or_else(|| anyhow!("invalid main weapon number: {}", self.op1))?,
             flag: u16::try_from(self.op2)?,
         }))
     }
@@ -65,7 +161,8 @@ impl Object {
             return Ok(None);
         }
         Ok(Some(SubWeapon {
-            sub_weapon_number: u8::try_from(self.op1)?,
+            content: items::SubWeapon::from_i32(self.op1)
+                .ok_or_else(|| anyhow!("invalid sub weapon number: {}", self.op1))?,
             count: u16::try_from(self.op2)?,
             flag: u16::try_from(self.op3)?,
         }))
@@ -76,7 +173,16 @@ impl Object {
             return Ok(None);
         }
         Ok(Some(ChestItem {
-            chest_item_number: i16::try_from(self.op2)?,
+            content: if self.op2 == -1 {
+                None
+            } else if self.op2 < 100 {
+                Some(ChestContent::Equipment(
+                    items::Equipment::from_i32(self.op2)
+                        .ok_or_else(|| anyhow!("invalid equipment number: {}", self.op2))?,
+                ))
+            } else {
+                Some(ChestContent::Rom(items::Rom(u8::try_from(self.op2 - 100)?)))
+            },
             open_flag: self.op1,
             flag: self.op3,
         }))
@@ -87,7 +193,8 @@ impl Object {
             return Ok(None);
         }
         Ok(Some(Seal {
-            seal_number: u8::try_from(self.op1)?,
+            content: items::Seal::from_i32(self.op1)
+                .ok_or_else(|| anyhow!("invalid seal number: {}", self.op1))?,
             flag: u16::try_from(self.op2)?,
         }))
     }

@@ -1,11 +1,14 @@
 use std::num::NonZero;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use num_traits::FromPrimitive;
 
 use crate::script::file::dat::{byte_code_to_text, text_to_byte_code};
 
-use super::items::{Equipment, Rom, SubWeapon};
+use super::{
+    item::{self, Equipment, Item, Rom, SubWeaponAmmo, SubWeaponBody},
+    items,
+};
 
 pub fn parse(text: &str) -> Result<(ShopItem, ShopItem, ShopItem)> {
     debug_assert_eq!(text.chars().count(), 7 * 3);
@@ -29,59 +32,48 @@ pub fn stringify(items: (ShopItem, ShopItem, ShopItem)) -> Result<String> {
     Ok(byte_code_to_text(&data))
 }
 
-pub struct ShopSubWeapon {
-    pub sub_weapon: SubWeapon,
+#[derive(Clone)]
+pub struct ShopSubWeaponBody {
+    pub item: SubWeaponBody,
     price: u16,
-    /// None means subweapon body
-    pub count: Option<NonZero<u8>>,
-    pub set_flag: u16,
 }
 
+#[derive(Clone)]
+pub struct ShopSubWeaponAmmo {
+    pub item: SubWeaponAmmo,
+    price: u16,
+}
+
+#[derive(Clone)]
 pub struct ShopEquipment {
-    pub equipment: Equipment,
+    pub item: Equipment,
     price: u16,
-    pub set_flag: u16,
 }
 
+#[derive(Clone)]
 pub struct ShopRom {
-    pub rom: Rom,
+    pub item: Rom,
     price: u16,
-    pub set_flag: u16,
 }
 
+#[derive(Clone)]
 pub enum ShopItem {
-    SubWeapon(ShopSubWeapon),
+    SubWeaponBody(ShopSubWeaponBody),
+    SubWeaponAmmo(ShopSubWeaponAmmo),
     Equipment(ShopEquipment),
     Rom(ShopRom),
 }
 
 impl ShopItem {
-    pub fn sub_weapon(
-        sub_weapon: SubWeapon,
-        price: u16,
-        count: Option<NonZero<u8>>,
-        set_flag: u16,
-    ) -> Self {
-        Self::SubWeapon(ShopSubWeapon {
-            sub_weapon,
-            price,
-            count,
-            set_flag,
-        })
-    }
-    pub fn equipment(equipment: Equipment, price: u16, set_flag: u16) -> Self {
-        Self::Equipment(ShopEquipment {
-            equipment,
-            price,
-            set_flag,
-        })
-    }
-    pub fn rom(rom: Rom, price: u16, set_flag: u16) -> Self {
-        Self::Rom(ShopRom {
-            rom,
-            price,
-            set_flag,
-        })
+    pub fn from_item(item: Item, price: u16) -> Self {
+        match item {
+            Item::MainWeapon(_) => unreachable!(),
+            Item::SubWeaponBody(item) => Self::SubWeaponBody(ShopSubWeaponBody { item, price }),
+            Item::SubWeaponAmmo(item) => Self::SubWeaponAmmo(ShopSubWeaponAmmo { item, price }),
+            Item::Equipment(item) => Self::Equipment(ShopEquipment { item, price }),
+            Item::Rom(item) => Self::Rom(ShopRom { item, price }),
+            Item::Seal(_) => unreachable!(),
+        }
     }
 
     fn from_bytes(data: &[u8]) -> Result<Self> {
@@ -89,34 +81,48 @@ impl ShopItem {
         let number = data[1] - 1;
         let price = (((data[2] - 1) as u16) << 8) + data[3] as u16;
         let set_flag = (((data[5] - 1) as u16) << 8) + data[6] as u16; // 254 * 256 + 255 is no set flag
-        Ok(match shop_item_type {
-            0 => Self::sub_weapon(
-                SubWeapon::from_u8(number)
-                    .ok_or_else(|| anyhow!("Invalid subweapon number: {}", number))?,
-                price,
-                NonZero::new(data[4] - 1),
-                set_flag,
+        match shop_item_type {
+            0 => NonZero::new(data[4] - 1).map_or_else(
+                || {
+                    let item = item::SubWeaponBody {
+                        content: items::SubWeapon::from_u8(number)
+                            .ok_or_else(|| anyhow!("Invalid subweapon number: {}", number))?,
+                        set_flag,
+                    };
+                    Ok(Self::SubWeaponBody(ShopSubWeaponBody { item, price }))
+                },
+                |amount| {
+                    let item = item::SubWeaponAmmo {
+                        content: items::SubWeapon::from_u8(number)
+                            .ok_or_else(|| anyhow!("Invalid subweapon number: {}", number))?,
+                        set_flag,
+                        amount,
+                    };
+                    Ok(Self::SubWeaponAmmo(ShopSubWeaponAmmo { item, price }))
+                },
             ),
-            1 => Self::equipment(
-                Equipment::from_u8(number)
-                    .ok_or_else(|| anyhow!("Invalid equipment number: {}", number))?,
-                price,
-                set_flag,
-            ),
+            1 => {
+                let item = item::Equipment {
+                    content: items::Equipment::from_u8(number)
+                        .ok_or_else(|| anyhow!("Invalid equipment number: {}", number))?,
+                    set_flag,
+                };
+                Ok(Self::Equipment(ShopEquipment { item, price }))
+            }
             // NOTE: 占いセンセーション(72) count is not as specified. It has 1 in it, not 0.
-            2 => Self::Rom(ShopRom {
-                rom: Rom(number),
-                price,
-                set_flag,
-            }),
-            _ => return Err(anyhow!("Invalid shop item type: {}", shop_item_type)),
-        })
+            2 => {
+                let content = items::Rom(number);
+                let item = item::Rom { content, set_flag };
+                Ok(Self::Rom(ShopRom { item, price }))
+            }
+            _ => bail!("Invalid shop item type: {}", shop_item_type),
+        }
     }
 
     fn to_bytes(&self) -> [u8; 7] {
         [
             match self {
-                Self::SubWeapon(_) => 0,
+                Self::SubWeaponBody(_) | Self::SubWeaponAmmo(_) => 0,
                 Self::Equipment(_) => 1,
                 Self::Rom(_) => 2,
             } + 1,
@@ -131,30 +137,34 @@ impl ShopItem {
 
     pub fn number(&self) -> u8 {
         match self {
-            Self::SubWeapon(x) => x.sub_weapon as u8,
-            Self::Equipment(x) => x.equipment as u8,
-            Self::Rom(x) => x.rom.0,
+            Self::SubWeaponBody(x) => x.item.content as u8,
+            Self::SubWeaponAmmo(x) => x.item.content as u8,
+            Self::Equipment(x) => x.item.content as u8,
+            Self::Rom(x) => x.item.content.0,
         }
     }
     pub fn price(&self) -> u16 {
         match self {
-            Self::SubWeapon(x) => x.price,
+            Self::SubWeaponBody(x) => x.price,
+            Self::SubWeaponAmmo(x) => x.price,
             Self::Equipment(x) => x.price,
             Self::Rom(x) => x.price,
         }
     }
     pub fn count(&self) -> Option<NonZero<u8>> {
         match self {
-            Self::SubWeapon(x) => x.count,
+            Self::SubWeaponBody(_) => None,
+            Self::SubWeaponAmmo(x) => Some(x.item.amount),
             Self::Equipment(_) => None,
             Self::Rom(_) => None,
         }
     }
     pub fn set_flag(&self) -> u16 {
         match self {
-            Self::SubWeapon(x) => x.set_flag,
-            Self::Equipment(x) => x.set_flag,
-            Self::Rom(x) => x.set_flag,
+            Self::SubWeaponBody(x) => x.item.set_flag,
+            Self::SubWeaponAmmo(x) => x.item.set_flag,
+            Self::Equipment(x) => x.item.set_flag,
+            Self::Rom(x) => x.item.set_flag,
         }
     }
 }

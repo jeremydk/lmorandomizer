@@ -1,112 +1,87 @@
-use std::num::NonZero;
-
-use crate::script::data::items;
-
 use super::supplements::StrategyFlag;
 
 #[derive(Clone, Debug)]
 pub struct MainWeapon {
+    pub src_main_weapon_idx: u8,
     pub name: StrategyFlag,
-    pub number: items::MainWeapon,
-    pub flag: u16,
 }
 
 #[derive(Clone, Debug)]
-pub struct SubWeapon {
+pub struct SubWeaponBody {
+    pub src_idx: u8,
     pub name: StrategyFlag,
-    pub number: items::SubWeapon,
-    pub count: Option<NonZero<u8>>,
-    pub flag: u16,
 }
 
 #[derive(Clone, Debug)]
-pub struct Equipment {
+pub struct SubWeaponAmmo {
+    pub src_idx: u8,
     pub name: StrategyFlag,
-    pub number: items::Equipment,
-    pub flag: u16,
 }
 
 #[derive(Clone, Debug)]
-pub struct Rom {
+pub struct ChestItem {
+    pub src_idx: u8,
     pub name: StrategyFlag,
-    pub number: items::Rom,
-    pub flag: u16,
 }
 
 #[derive(Clone, Debug)]
 pub struct Seal {
+    pub src_seal_idx: u8,
     pub name: StrategyFlag,
-    pub number: u8,
-    pub flag: u16,
+}
+
+#[derive(Clone, Debug)]
+pub struct ShopItem {
+    pub src_idx: (u8, u8),
+    pub name: StrategyFlag,
 }
 
 #[derive(Clone, Debug)]
 pub enum Item {
     MainWeapon(MainWeapon),
-    SubWeapon(SubWeapon),
-    Equipment(Equipment),
-    Rom(Rom),
+    SubWeaponBody(SubWeaponBody),
+    SubWeaponAmmo(SubWeaponAmmo),
+    #[allow(clippy::enum_variant_names)]
+    ChestItem(ChestItem),
     Seal(Seal),
+    #[allow(clippy::enum_variant_names)]
+    ShopItem(ShopItem),
 }
 
 impl Item {
-    #[inline]
-    fn initial_assert(number: i8, flag: u16, is_sub_weapon: bool) {
-        debug_assert!(
-            [494, 524].contains(&flag)
-                || (684..=883).contains(&flag)
-                || is_sub_weapon && flag == 65279,
-            "invalid value: {flag} ({number})"
-        );
-    }
-    pub fn main_weapon(name: StrategyFlag, number: items::MainWeapon, flag: u16) -> Self {
-        Self::initial_assert(number as i8, flag, false);
-        Self::MainWeapon(MainWeapon { name, number, flag })
-    }
-    pub fn sub_weapon(
-        name: StrategyFlag,
-        number: items::SubWeapon,
-        count: Option<NonZero<u8>>,
-        flag: u16,
-    ) -> Self {
-        Self::initial_assert(number as i8, flag, true);
-        Self::SubWeapon(SubWeapon {
+    pub fn main_weapon(src_main_weapon_idx: u8, name: StrategyFlag) -> Self {
+        Self::MainWeapon(MainWeapon {
+            src_main_weapon_idx,
             name,
-            number,
-            count,
-            flag,
         })
     }
-    pub fn equipment(name: StrategyFlag, number: items::Equipment, flag: u16) -> Self {
-        Self::initial_assert(number as i8, flag, false);
-        Self::Equipment(Equipment { name, number, flag })
+    pub fn sub_weapon_body(src_idx: u8, name: StrategyFlag) -> Self {
+        Self::SubWeaponBody(SubWeaponBody { src_idx, name })
     }
-    pub fn rom(name: StrategyFlag, number: items::Rom, flag: u16) -> Self {
-        Self::initial_assert(number.0 as i8, flag, false);
-        Self::Rom(Rom { name, number, flag })
+    pub fn sub_weapon_ammo(src_idx: u8, name: StrategyFlag) -> Self {
+        Self::SubWeaponAmmo(SubWeaponAmmo { src_idx, name })
     }
-    pub fn seal(name: StrategyFlag, number: u8, flag: u16) -> Self {
-        Self::initial_assert(number as i8, flag, false);
-        Self::Seal(Seal { name, number, flag })
+    pub fn chest_item(src_idx: u8, name: StrategyFlag) -> Self {
+        Self::ChestItem(ChestItem { src_idx, name })
+    }
+    pub fn seal(src_seal_idx: u8, name: StrategyFlag) -> Self {
+        Self::Seal(Seal { src_seal_idx, name })
+    }
+    pub fn shop_item(shop_idx: u8, item_idx: u8, name: StrategyFlag) -> Self {
+        Self::ShopItem(ShopItem {
+            src_idx: (shop_idx, item_idx),
+            name,
+        })
     }
 
     pub fn name(&self) -> &StrategyFlag {
         match self {
             Self::MainWeapon(x) => &x.name,
-            Self::SubWeapon(x) => &x.name,
-            Self::Equipment(x) => &x.name,
-            Self::Rom(x) => &x.name,
+            Self::SubWeaponBody(x) => &x.name,
+            Self::SubWeaponAmmo(x) => &x.name,
+            Self::ChestItem(x) => &x.name,
             Self::Seal(x) => &x.name,
-        }
-    }
-
-    pub fn flag(&self) -> u16 {
-        match self {
-            Self::MainWeapon(x) => x.flag,
-            Self::SubWeapon(x) => x.flag,
-            Self::Equipment(x) => x.flag,
-            Self::Rom(x) => x.flag,
-            Self::Seal(x) => x.flag,
+            Self::ShopItem(x) => &x.name,
         }
     }
 
@@ -115,20 +90,24 @@ impl Item {
     // shops -> equipments / rom
     // shops <- subWeapon / subWeaponAmmo / equipments / rom
     pub fn can_display_in_shop(&self) -> bool {
-        self.flag() % 256 != 0
-            && match self {
-                Self::MainWeapon(_) => false,
-                Self::SubWeapon(x) => {
-                    x.count.is_some()
-                        || x.number == items::SubWeapon::Pistol
-                        || x.number == items::SubWeapon::Buckler
-                        || x.number == items::SubWeapon::HandScanner
-                }
-                Self::Equipment(x) => {
-                    x.number != items::Equipment::Map && x.number != items::Equipment::SacredOrb
-                }
-                Self::Rom(_) => true,
-                Self::Seal(_) => false,
+        match self {
+            Self::MainWeapon(_) => false,
+            Self::SubWeaponBody(x) => {
+                x.name.get() == "pistol"
+                    || x.name.get() == "buckler"
+                    || x.name.get() == "handScanner"
             }
+            Self::SubWeaponAmmo(_) => true,
+            Self::ChestItem(x) => {
+                !x.name.is_map()
+                    && !x.name.is_sacred_orb()
+                    && (
+                        // Boots with set flag 768 (multiples of 256) cannot be sold in shops
+                        x.name.get() != "boots"
+                    )
+            }
+            Self::Seal(_) => false,
+            Self::ShopItem(_) => true,
+        }
     }
 }
