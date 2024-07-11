@@ -2,49 +2,42 @@ use std::collections::HashSet;
 
 use log::warn;
 
-use crate::{
-    dataset::{
-        item::Item,
-        spot::Spot,
-        storage::{ItemSpot, Shop, Storage},
-        supplements::{
-            SupplementFiles, Supplements, NIGHT_SURFACE_CHEST_COUNT, NIGHT_SURFACE_SEAL_COUNT,
-            NIGHT_SURFACE_SUB_WEAPON_COUNT, TRUE_SHRINE_OF_THE_MOTHER_SEAL_COUNT,
-            WARE_NO_MISE_COUNT,
-        },
-    },
-    script::data::script::Script,
+use crate::dataset::{
+    item::Item,
+    spot::Spot,
+    storage::{ItemSpot, Shop, Storage},
+    supplements::Supplements,
 };
 
 use super::{
     get_all_items::{get_all_items, AllItems},
-    supplements::{AnyOfAllRequirements, RequirementFlag},
+    spot::{AnyOfAllRequirements, RequirementFlag},
 };
 
-pub fn create_source(supplement_files: &SupplementFiles, script: &Script) -> Storage {
-    let supplements = Supplements::new(supplement_files);
+#[test]
+fn test_create_source() {
+    use sha3::{Digest, Sha3_512};
 
-    debug_assert_eq!(
-        script.main_weapons().unwrap().len(),
-        supplements.main_weapons.len()
-    );
-    debug_assert_eq!(
-        script.sub_weapons().unwrap().len(),
-        supplements.sub_weapons.len() + NIGHT_SURFACE_SUB_WEAPON_COUNT
-    );
-    debug_assert_eq!(
-        script.chests().unwrap().len(),
-        supplements.chests.len() + NIGHT_SURFACE_CHEST_COUNT
-    );
-    debug_assert_eq!(
-        script.seals().unwrap().len(),
-        supplements.seals.len() + TRUE_SHRINE_OF_THE_MOTHER_SEAL_COUNT + NIGHT_SURFACE_SEAL_COUNT
-    );
-    debug_assert_eq!(
-        script.shops().unwrap().len(),
-        supplements.shops.len() + WARE_NO_MISE_COUNT
-    );
+    use crate::dataset::{
+        create_source::create_source,
+        supplements::{SupplementFiles, Supplements},
+    };
 
+    let files = SupplementFiles {
+        weapons_yml: include_str!("../../../public/res/weapons.yml").to_owned(),
+        chests_yml: include_str!("../../../public/res/chests.yml").to_owned(),
+        seals_yml: include_str!("../../../public/res/seals.yml").to_owned(),
+        shops_yml: include_str!("../../../public/res/shops.yml").to_owned(),
+        events_yml: include_str!("../../../public/res/events.yml").to_owned(),
+    };
+    let supplements = Supplements::new(&files);
+    let source = create_source(supplements);
+    let script_dat_hash = Sha3_512::digest(format!("{:?}", source)).to_vec();
+    const HASH: &str = "3390414b584a1728d18c5cc067e42607159f0f8908d8e02b87bfaf8fc8caff68ecddb6fdd0de3bc9de377d035c0203f8226910670c246e9851b7b8e1ebd30967";
+    assert_eq!(script_dat_hash, hex::decode(HASH).unwrap());
+}
+
+pub fn create_source(supplements: Supplements) -> Storage {
     let all_items = get_all_items(&supplements);
     let enumerate_items: Vec<_> = all_items
         .main_weapons
@@ -74,40 +67,40 @@ pub fn create_source(supplement_files: &SupplementFiles, script: &Script) -> Sto
         all_items_main_weapons
             .into_iter()
             .zip(supplements_main_weapons)
-            .map(|(item, sup_spot)| {
-                let spot = Spot::new(sup_spot.requirements);
-                ItemSpot { spot, item }
+            .map(|(item, spot)| ItemSpot {
+                spot: Spot::MainWeaponShutter(spot),
+                item,
             })
             .collect(),
         all_items_sub_weapons
             .into_iter()
             .zip(supplements_sub_weapons)
-            .map(|(item, sup_spot)| {
-                let spot = Spot::new(sup_spot.requirements);
-                ItemSpot { spot, item }
+            .map(|(item, spot)| ItemSpot {
+                spot: Spot::SubWeaponShutter(spot),
+                item,
             })
             .collect(),
         all_items_chests
             .into_iter()
             .zip(supplements_chests)
-            .map(|(item, sup_spot)| {
-                let spot = Spot::new(sup_spot.requirements);
-                ItemSpot { spot, item }
+            .map(|(item, spot)| ItemSpot {
+                spot: Spot::Chest(spot),
+                item,
             })
             .collect(),
         all_items_seals
             .into_iter()
             .zip(supplements_seals)
-            .map(|(item, sup_spot)| {
-                let spot = Spot::new(sup_spot.requirements);
-                ItemSpot { spot, item }
+            .map(|(item, spot)| ItemSpot {
+                spot: Spot::SealChest(spot),
+                item,
             })
             .collect(),
         all_items_shops
             .into_iter()
             .zip(supplements_shops)
-            .map(|(items, sup_shop)| Shop {
-                spot: Spot::new(sup_shop.requirements),
+            .map(|(items, spot)| Shop {
+                spot: Spot::Shop(spot),
                 items,
             })
             .collect(),
