@@ -1,10 +1,8 @@
 use crate::{
     dataset::{
         storage::{Shop, Storage, StorageIndices},
-        supplements::{
-            NIGHT_SURFACE_CHEST_COUNT, NIGHT_SURFACE_SEAL_COUNT, NIGHT_SURFACE_SUB_WEAPON_COUNT,
-            TRUE_SHRINE_OF_THE_MOTHER_SEAL_COUNT, WARE_NO_MISE_COUNT,
-        },
+        NIGHT_SURFACE_CHEST_COUNT, NIGHT_SURFACE_SEAL_COUNT, NIGHT_SURFACE_SUB_WEAPON_COUNT,
+        TRUE_SHRINE_OF_THE_MOTHER_SEAL_COUNT, WARE_NO_MISE_COUNT,
     },
     script::data::shop_items_data::{self, ShopItem},
 };
@@ -42,8 +40,14 @@ pub fn replace_shops(
             .enumerate()
             .map(|(j, old_item)| {
                 let new_item = [&new_shop.items.0, &new_shop.items.1, &new_shop.items.2][j];
+                let is_consumable = new_item.name.is_consumable();
                 let new_item = Item::from_dataset(new_item, script)?;
-                Ok(ShopItem::from_item(new_item, old_item.price()))
+                let price = if is_consumable {
+                    new_item.price().unwrap()
+                } else {
+                    old_item.price()
+                };
+                Ok(ShopItem::from_item(new_item, price))
             })
             .collect::<Result<Vec<_>>>()?
             .into_iter();
@@ -70,7 +74,7 @@ fn new_objs(
     match obj.number {
         // Main weapons
         77 => {
-            let item = &shuffled.main_weapon_shutters()[indices.main_weapon_spot_idx].item;
+            let item = &shuffled.main_weapons()[indices.main_weapon_spot_idx].item;
             let item = &Item::from_dataset(item, script)?;
             indices.main_weapon_spot_idx += 1;
             let next_shutter_check_flag = get_next_shutter_check_flag(next_objs)?
@@ -84,14 +88,14 @@ fn new_objs(
         // Sub weapons
         13 => {
             // TODO: nightSurface
-            if indices.sub_weapon_spot_idx >= shuffled.sub_weapon_shutters().len() {
-                let sum = shuffled.sub_weapon_shutters().len() + NIGHT_SURFACE_SUB_WEAPON_COUNT;
+            if indices.sub_weapon_spot_idx >= shuffled.sub_weapons().len() {
+                let sum = shuffled.sub_weapons().len() + NIGHT_SURFACE_SUB_WEAPON_COUNT;
                 debug_assert!(indices.sub_weapon_spot_idx < sum);
                 indices.sub_weapon_spot_idx += 1;
                 return Ok(vec![obj.clone()]);
             }
             // Ankh Jewel
-            let item = &shuffled.sub_weapon_shutters()[indices.sub_weapon_spot_idx].item;
+            let item = &shuffled.sub_weapons()[indices.sub_weapon_spot_idx].item;
             let item = &Item::from_dataset(item, script)?;
             indices.sub_weapon_spot_idx += 1;
             if obj.op1 == SubWeapon::AnkhJewel as i32 {
@@ -147,15 +151,15 @@ fn new_objs(
         // TODO: trueShrineOfTheMother
         // TODO: nightSurface
         71 => {
-            if indices.seal_chest_idx >= shuffled.seal_chests().len() {
-                let sum = shuffled.seal_chests().len()
+            if indices.seal_chest_idx >= shuffled.seals().len() {
+                let sum = shuffled.seals().len()
                     + TRUE_SHRINE_OF_THE_MOTHER_SEAL_COUNT
                     + NIGHT_SURFACE_SEAL_COUNT;
                 debug_assert!(indices.seal_chest_idx < sum);
                 indices.seal_chest_idx += 1;
                 return Ok(vec![obj.clone()]);
             }
-            let item = &shuffled.seal_chests()[indices.seal_chest_idx].item;
+            let item = &shuffled.seals()[indices.seal_chest_idx].item;
             let item = &Item::from_dataset(item, script)?;
             indices.seal_chest_idx += 1;
             Ok(vec![to_object_for_special_chest(obj, item)?])
@@ -165,7 +169,7 @@ fn new_objs(
         140 if obj.x == 49152 && obj.y == 16384 => {
             let mut obj = obj.clone();
             let prev_sub_weapon_shutter_item =
-                &shuffled.sub_weapon_shutters()[indices.sub_weapon_spot_idx - 1].item;
+                &shuffled.sub_weapons()[indices.sub_weapon_spot_idx - 1].item;
             let prev_sub_weapon_shutter_item =
                 &Item::from_dataset(prev_sub_weapon_shutter_item, script)?;
             fix_trap_of_mausoleum_of_the_giants(&mut obj, prev_sub_weapon_shutter_item);
