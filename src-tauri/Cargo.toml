@@ -9,6 +9,10 @@ edition = "2021"
 name = "lmocodec"
 path = "src/codec.rs"
 
+[[bin]]
+name = "lmorandomizer"
+path = "src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [build-dependencies]
 tauri-build = { version = "2.0.0-beta", features = [] }
