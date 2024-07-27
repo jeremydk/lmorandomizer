@@ -1,4 +1,8 @@
-use std::{collections::HashSet, hash::Hash};
+use std::{
+    collections::{BTreeMap, HashSet},
+    hash::Hash,
+    ptr,
+};
 
 use log::{info, trace};
 use rand::{seq::SliceRandom, Rng};
@@ -8,85 +12,63 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 use crate::{
     dataset::{
         item::{Item, StrategyFlag},
-        spot::Spot,
-        storage::Shop,
+        spot::{FieldId, Spot},
     },
-    randomizer::sphere::{sphere, RemainingSpots},
+    randomizer::sphere::sphere,
 };
 
 use super::{
-    pickup_items::ItemsPool,
-    spoiler_log::{Checkpoint, Sphere, SpoilerLog},
+    items_spots::{Items, Spots},
+    spoiler_log::{Checkpoint, SpoilerLogRef},
 };
 
 pub fn make_rng<H: Hash>(seed: H) -> Xoshiro256PlusPlus {
     Seeder::from(seed).make_rng()
 }
 
-fn shuffle_items(
+fn maps<'a>(
     rng: &mut impl Rng,
-    priority_items: &[Item],
-    sellable_items: &[Item],
-    unsellable_items: &[Item],
-    consumable_items: &[Item],
-    shop_display_count: usize,
-) -> ItemsPool {
-    let mut sellable_items = sellable_items.to_vec();
-    sellable_items.as_mut_slice().shuffle(rng);
-    let new_shop_items = sellable_items.split_off(sellable_items.len() - shop_display_count);
-    let mut new_field_items = sellable_items;
-    new_field_items.append(&mut unsellable_items.to_vec());
-    new_field_items.as_mut_slice().shuffle(rng);
-    let mut consumable_items = consumable_items.to_vec();
-    consumable_items.shuffle(rng);
-    ItemsPool {
-        priority_items: Some(priority_items.to_vec()),
-        field_items: new_field_items,
-        shop_items: new_shop_items,
-        consumable_items,
+    maps: &BTreeMap<FieldId, &'a Item>,
+    spots: &mut Spots<'a>,
+) -> Vec<Checkpoint<&'a Spot, &'a Item>> {
+    let mut hash_map: BTreeMap<FieldId, Vec<&'a Spot>> = Default::default();
+    for spot in &spots.field_item_spots {
+        hash_map.entry(spot.field_id()).or_default().push(spot);
     }
+    maps.iter()
+        .map(|(field_id, item)| {
+            let spot = hash_map[field_id].choose(rng).unwrap();
+            Checkpoint::<&Spot, &Item> {
+                spot,
+                idx: 0,
+                item: *item,
+            }
+        })
+        .inspect(|checkpoint| {
+            let idx = spots
+                .field_item_spots
+                .iter()
+                .position(|&x| ptr::eq(x, checkpoint.spot))
+                .unwrap();
+            spots.field_item_spots.swap_remove(idx);
+        })
+        .collect()
 }
 
-pub fn spoiler(
-    seed: u64,
-    priority_items: &[Item],
-    sellable_items: &[Item],
-    unsellable_items: &[Item],
-    consumable_items: &[Item],
-    field_item_spots: &[&Spot],
-    shops: &[&Shop],
-) -> Option<SpoilerLog> {
-    debug_assert!(priority_items.iter().all(|item| item.can_display_in_shop()));
+pub fn spoiler<'a>(seed: u64, items: &Items<'a>, spots: &Spots<'a>) -> Option<SpoilerLogRef<'a>> {
     let start = std::time::Instant::now();
     let mut rng = make_rng(seed);
-    let shop_display_count = shops.len() * 3 - consumable_items.len();
-    debug_assert_eq!(
-        shops.len() * 3 - consumable_items.len(),
-        shops
-            .iter()
-            .map(|shop| shop.count_general_items())
-            .sum::<usize>(),
-    );
-    debug_assert_eq!(
-        shops
-            .iter()
-            .map(|shop| 3 - shop.count_general_items())
-            .sum::<usize>(),
-        consumable_items.len()
-    );
-    let mut items_pool = shuffle_items(
-        &mut rng,
-        priority_items,
-        sellable_items,
-        unsellable_items,
-        consumable_items,
-        shop_display_count,
-    );
+    let mut items_pool = items.to_items_pool(&mut rng, spots.shops.len());
+    let mut remaining_spots = spots.clone();
+    let maps = maps(&mut rng, items.maps(), &mut remaining_spots);
 
-    let mut remaining_spots = RemainingSpots {
-        field_item_spots: field_item_spots.to_vec(),
-        shops: shops.to_vec(),
-    };
+    debug_assert_eq!(
+        items.priority_items().len()
+            + items.unsellable_items().len()
+            + items.consumable_items().len()
+            + items.sellable_items().len(),
+        remaining_spots.field_item_spots.len() + remaining_spots.shops.len()
+    );
 
     let mut strategy_flags: HashSet<StrategyFlag> = Default::default();
     let mut progression = Vec::new();
@@ -107,20 +89,7 @@ pub fn spoiler(
             continue;
         }
         info!("Sphere: {}, time: {:?}", i, start.elapsed());
-        let progression = progression
-            .into_iter()
-            .map(|sphere| {
-                sphere
-                    .into_iter()
-                    .map(|(spot, items)| Checkpoint {
-                        spot: spot.to_owned(),
-                        items,
-                    })
-                    .collect()
-            })
-            .map(Sphere)
-            .collect();
-        return Some(SpoilerLog { progression });
+        return Some(SpoilerLogRef { progression, maps });
     }
     unreachable!();
 }

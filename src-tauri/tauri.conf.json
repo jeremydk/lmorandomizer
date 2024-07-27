@@ -1,6 +1,6 @@
 {
   "productName": "lmorandomizer",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "identifier": "net.prgrssv.lmorandomizer",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -30,6 +30,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": ["res/*"]
   }
 }
